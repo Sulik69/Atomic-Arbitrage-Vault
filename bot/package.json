@@ -1,0 +1,24 @@
+{
+  "name": "@workspace/arb-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx arb_scanner.ts",
+    "vault:init": "tsx vault_admin.ts initialize",
+    "vault:set-bot": "tsx vault_admin.ts set-bot",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "0.32.1",
+    "@solana/spl-token": "0.4.14",
+    "@solana/web3.js": "1.98.4",
+    "dotenv": "16.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "^5.9.3"
+  }
+}
+

@@ -1,0 +1,14 @@
+[features]
+seeds = false
+skip-lint = false
+
+[programs.devnet]
+arbitrage_vault = "11111111111111111111111111111111"
+
+[provider]
+cluster = "Devnet"
+wallet = "~/.config/solana/id.json"
+
+[workspace]
+members = ["programs/arbitrage_vault"]
+
