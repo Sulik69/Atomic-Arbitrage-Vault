@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SolArb Vault Dashboard"
+description = "A Solana Devnet dashboard for an autonomous arbitrage vault, with wallet connection, vault metrics, deposit and withdrawal controls, simulated arbitrage opportunities, atomic-route visualization, and recent trade activity."
+version = "1.0.0"
+id = "artifacts/solarb-vault-dashboard"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21653
+
+[services.development]
+run = "pnpm --filter @workspace/solarb-vault-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/solarb-vault-dashboard", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/solarb-vault-dashboard/out"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21653"
+BASE_PATH = "/"

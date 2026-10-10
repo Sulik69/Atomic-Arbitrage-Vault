@@ -1,0 +1,19 @@
+{
+  "devFiles": [],
+  "ampDevFiles": [],
+  "polyfillFiles": [],
+  "lowPriorityFiles": [],
+  "rootMainFiles": [],
+  "pages": {
+    "/not-found": [
+      "static/chunks/1euq2wjlrn3gs.js",
+      "static/chunks/turbopack-2c3mg3r-05n1w.js"
+    ]
+  },
+  "ampFirstPages": [],
+  "rootMainFilesTree": {},
+  "pagesChunkGroupBootstrapParams": {
+    "/not-found": {"otherChunks":["static/chunks/1euq2wjlrn3gs.js"],"runtimeModuleIds":[27482,11524]}
+  },
+  "chunkLoadingGlobal": "TURBOPACK"
+}

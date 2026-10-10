@@ -1,0 +1,43 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "noEmit": true,
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/app/**/*.ts",
+    "src/app/**/*.tsx",
+    "src/components/solarb/**/*.ts",
+    "src/components/solarb/**/*.tsx",
+    "src/hooks/use-devnet-status.ts",
+    "src/hooks/use-opportunity-radar.ts",
+    "src/hooks/use-recent-transactions.ts",
+    "src/hooks/use-vault-metrics.ts",
+    "src/lib/solarb-types.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "references": [
+    {
+      "path": "../../lib/api-client-react"
+    }
+  ]
+}
