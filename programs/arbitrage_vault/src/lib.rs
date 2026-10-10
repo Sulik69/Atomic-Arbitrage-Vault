@@ -82,23 +82,9 @@ pub mod arbitrage_vault {
             ArbitrageError::VaultPaused
         );
 
-        let balance_before = ctx.accounts.usdc_vault.amount;
         let total_shares = ctx.accounts.vault_state.total_shares;
-        let shares_to_mint = if total_shares == 0 {
-            // Refuse to let the first depositor claim unsolicited tokens sent
-            // directly to the vault before the share ledger exists.
-            require!(balance_before == 0, ArbitrageError::AssetsWithoutShares);
-            amount
-        } else {
-            require!(balance_before > 0, ArbitrageError::MathOverflow);
-            let shares = (u128::from(amount))
-                .checked_mul(u128::from(total_shares))
-                .ok_or(ArbitrageError::MathOverflow)?
-                .checked_div(u128::from(balance_before))
-                .ok_or(ArbitrageError::MathOverflow)?;
-            u64::try_from(shares).map_err(|_| error!(ArbitrageError::MathOverflow))?
-        };
-        require!(shares_to_mint > 0, ArbitrageError::DepositTooSmall);
+        let shares_to_mint =
+            calculate_shares_to_mint(amount, ctx.accounts.usdc_vault.amount, total_shares)?;
 
         token::transfer(
             CpiContext::new(
@@ -145,22 +131,7 @@ pub mod arbitrage_vault {
         let vault_balance = ctx.accounts.usdc_vault.amount;
 
         require!(shares <= user_shares, ArbitrageError::InsufficientShares);
-        require!(
-            shares <= total_shares && total_shares > 0,
-            ArbitrageError::MathOverflow
-        );
-
-        let amount = if shares == total_shares {
-            vault_balance
-        } else {
-            let payout = u128::from(vault_balance)
-                .checked_mul(u128::from(shares))
-                .ok_or(ArbitrageError::MathOverflow)?
-                .checked_div(u128::from(total_shares))
-                .ok_or(ArbitrageError::MathOverflow)?;
-            u64::try_from(payout).map_err(|_| error!(ArbitrageError::MathOverflow))?
-        };
-        require!(amount > 0, ArbitrageError::WithdrawalTooSmall);
+        let amount = calculate_withdrawal_amount(vault_balance, total_shares, shares)?;
 
         ctx.accounts.user_shares.shares = user_shares
             .checked_sub(shares)
@@ -425,17 +396,13 @@ pub mod arbitrage_vault {
             ctx.accounts.intermediate_vault.amount == initial_intermediate_balance,
             ArbitrageError::IntermediateBalanceChanged
         );
-        let required_balance = initial_usdc_balance
-            .checked_add(min_profit)
-            .ok_or(ArbitrageError::MathOverflow)?;
-
         // Atomic zero-loss / positive-profit invariant. Returning this error
         // rolls back both AMM CPIs and all token transfers.
-        require!(
-            ctx.accounts.usdc_vault.amount >= required_balance,
-            ArbitrageError::ArbitrageUnprofitable
-        );
-        let profit = ctx.accounts.usdc_vault.amount - initial_usdc_balance;
+        let profit = enforce_minimum_profit(
+            initial_usdc_balance,
+            ctx.accounts.usdc_vault.amount,
+            min_profit,
+        )?;
         emit!(ArbitrageExecuted {
             bot: ctx.accounts.bot_authority.key(),
             amount_in,
@@ -446,6 +413,62 @@ pub mod arbitrage_vault {
         });
         Ok(())
     }
+}
+
+fn calculate_shares_to_mint(amount: u64, balance_before: u64, total_shares: u64) -> Result<u64> {
+    require!(amount > 0, ArbitrageError::ZeroAmount);
+    if total_shares == 0 {
+        // Refuse to let the first depositor claim unsolicited tokens sent
+        // directly to the vault before the share ledger exists.
+        require!(balance_before == 0, ArbitrageError::AssetsWithoutShares);
+        return Ok(amount);
+    }
+
+    require!(balance_before > 0, ArbitrageError::MathOverflow);
+    let shares = u128::from(amount)
+        .checked_mul(u128::from(total_shares))
+        .ok_or(ArbitrageError::MathOverflow)?
+        .checked_div(u128::from(balance_before))
+        .ok_or(ArbitrageError::MathOverflow)?;
+    let shares = u64::try_from(shares).map_err(|_| error!(ArbitrageError::MathOverflow))?;
+    require!(shares > 0, ArbitrageError::DepositTooSmall);
+    Ok(shares)
+}
+
+fn calculate_withdrawal_amount(vault_balance: u64, total_shares: u64, shares: u64) -> Result<u64> {
+    require!(
+        shares > 0 && shares <= total_shares && total_shares > 0,
+        ArbitrageError::InsufficientShares
+    );
+    let amount = if shares == total_shares {
+        vault_balance
+    } else {
+        let payout = u128::from(vault_balance)
+            .checked_mul(u128::from(shares))
+            .ok_or(ArbitrageError::MathOverflow)?
+            .checked_div(u128::from(total_shares))
+            .ok_or(ArbitrageError::MathOverflow)?;
+        u64::try_from(payout).map_err(|_| error!(ArbitrageError::MathOverflow))?
+    };
+    require!(amount > 0, ArbitrageError::WithdrawalTooSmall);
+    Ok(amount)
+}
+
+fn enforce_minimum_profit(
+    initial_balance: u64,
+    final_balance: u64,
+    min_profit: u64,
+) -> Result<u64> {
+    let required_balance = initial_balance
+        .checked_add(min_profit)
+        .ok_or(ArbitrageError::MathOverflow)?;
+    require!(
+        final_balance >= required_balance,
+        ArbitrageError::ArbitrageUnprofitable
+    );
+    final_balance
+        .checked_sub(initial_balance)
+        .ok_or(ArbitrageError::ArbitrageUnprofitable.into())
 }
 
 fn read_pubkey_at(data: &[u8], offset: usize) -> Result<Pubkey> {
@@ -741,4 +764,55 @@ pub enum ArbitrageError {
     IntermediateBalanceChanged,
     #[msg("A checked arithmetic operation overflowed or divided by zero.")]
     MathOverflow,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_deposit_mints_one_share_per_base_unit() {
+        assert_eq!(calculate_shares_to_mint(75, 0, 0).unwrap(), 75);
+    }
+
+    #[test]
+    fn later_deposits_use_current_pool_share_price() {
+        // 100 USDC enters a pool with 1,000 USDC backing 500 shares.
+        assert_eq!(calculate_shares_to_mint(100, 1_000, 500).unwrap(), 50);
+    }
+
+    #[test]
+    fn first_deposit_cannot_capture_unowned_vault_assets() {
+        assert!(calculate_shares_to_mint(100, 1, 0).is_err());
+    }
+
+    #[test]
+    fn tiny_deposit_cannot_mint_zero_shares() {
+        assert!(calculate_shares_to_mint(1, 1_000, 1).is_err());
+    }
+
+    #[test]
+    fn partial_withdrawal_uses_realized_profit_in_live_balance() {
+        // A 25% share position receives 25% of the current 1,200 balance.
+        assert_eq!(calculate_withdrawal_amount(1_200, 1_000, 250).unwrap(), 300);
+    }
+
+    #[test]
+    fn final_shareholder_receives_all_remaining_units() {
+        assert_eq!(
+            calculate_withdrawal_amount(1_201, 1_000, 1_000).unwrap(),
+            1_201
+        );
+    }
+
+    #[test]
+    fn arbitrage_requires_the_full_configured_profit() {
+        assert_eq!(enforce_minimum_profit(1_000, 1_025, 25).unwrap(), 25);
+        assert!(enforce_minimum_profit(1_000, 1_024, 25).is_err());
+    }
+
+    #[test]
+    fn profit_threshold_overflow_fails_closed() {
+        assert!(enforce_minimum_profit(u64::MAX, u64::MAX, 1).is_err());
+    }
 }
